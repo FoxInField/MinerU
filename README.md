@@ -43,7 +43,33 @@
 
 </div>
 
+> [!NOTE]
+> **This is a forked version with custom enhancements**
+> 
+> This repository is a fork of [opendatalab/MinerU](https://github.com/opendatalab/MinerU) with additional features:
+> - **Text LLM Processing**: AI-powered analysis and processing of parsed PDF content using large language models
+> - Support for multiple LLM backends (transformers, vllm-engine, vllm-async-engine, http-client)
+> - Model quantization support (int4, int8, fp8) to reduce memory usage
+> - Enhanced memory management for better resource utilization
+> 
+> For the original MinerU project, please visit: [opendatalab/MinerU](https://github.com/opendatalab/MinerU)
+
 # Changelog
+
+## Custom Fork Enhancements
+
+- **Text LLM Processing Feature** (Custom Enhancement)
+  - Added comprehensive text LLM processing module for AI-powered analysis of parsed PDF content
+  - Support for multiple backends: `transformers`, `vllm-engine`, `vllm-async-engine`, `http-client`
+  - Model quantization support: `int4`, `int8`, `fp8` to reduce GPU memory usage
+  - Prompt template system with custom placeholders (`{text}`, `{resume_text}`, `{json_template}`, etc.)
+  - CLI integration: `--ai-process` flag and related parameters for automatic AI processing after PDF parsing
+  - API endpoints: `/ai_process` and `/file_parse_with_ai` for programmatic access
+  - Standalone server: `mineru-text-llm-server` command for dedicated LLM service
+  - Enhanced memory management with model unloading capabilities
+  - Optimized prompt template handling to prevent duplicate variable replacement
+  - Debug logging for built prompts to facilitate troubleshooting
+
 - 2025/11/04 2.6.4 Release
   - Added timeout configuration for PDF image rendering, default is 300 seconds, can be configured via environment variable `MINERU_PDF_RENDER_TIMEOUT` to prevent long blocking of the rendering process caused by some abnormal PDF files.
   - Added CPU thread count configuration options for ONNX models, default is the system CPU core count, can be configured via environment variables `MINERU_INTRA_OP_NUM_THREADS` and `MINERU_INTER_OP_NUM_THREADS` to reduce CPU resource contention conflicts in high concurrency scenarios.
@@ -594,6 +620,7 @@ https://github.com/user-attachments/assets/4bea02c9-6d54-4cd6-97ed-dff14340982c
 - OCR supports detection and recognition of 109 languages.
 - Supports multiple output formats, such as multimodal and NLP Markdown, JSON sorted by reading order, and rich intermediate formats.
 - Supports various visualization results, including layout visualization and span visualization, for efficient confirmation of output quality.
+- **Text LLM Processing**: AI-powered analysis and processing of parsed content using large language models (custom enhancement).
 - Supports running in a pure CPU environment, and also supports GPU(CUDA)/NPU(CANN)/MPS acceleration
 - Compatible with Windows, Linux, and Mac platforms.
 
@@ -729,6 +756,87 @@ mineru -p <input_path> -o <output_path>
 ```
 
 You can use MinerU for PDF parsing through various methods such as command line, API, and WebUI. For detailed instructions, please refer to the [Usage Guide](https://opendatalab.github.io/MinerU/usage/).
+
+#### Text LLM Processing (Custom Enhancement)
+
+This fork adds AI-powered text processing capabilities. After parsing PDFs, you can use large language models to analyze and process the extracted content.
+
+**Command Line Usage:**
+
+```bash
+# Basic usage with AI processing
+mineru -p <input_path> -o <output_path> --ai-process \
+  --ai-backend transformers \
+  --ai-model "Qwen/Qwen2.5-1.5B-Instruct" \
+  --ai-quantization int4
+
+# With custom prompt template
+mineru -p <input_path> -o <output_path> --ai-process \
+  --ai-backend transformers \
+  --ai-model "Qwen/Qwen2.5-3B-Instruct" \
+  --ai-quantization int4 \
+  --ai-prompt-template "$(cat prompt.txt)" \
+  --ai-json-template "$(cat template.json)"
+
+# Using vLLM backend for faster inference
+mineru -p <input_path> -o <output_path> --ai-process \
+  --ai-backend vllm-engine \
+  --ai-model "Qwen/Qwen2.5-3B-Instruct" \
+  --ai-quantization fp8
+```
+
+**Key Parameters:**
+- `--ai-process`: Enable AI processing after PDF parsing
+- `--ai-backend`: Choose backend (`transformers`, `vllm-engine`, `vllm-async-engine`, `http-client`)
+- `--ai-model`: Model name (e.g., `Qwen/Qwen2.5-3B-Instruct`)
+- `--ai-quantization`: Quantization method (`int4`, `int8`, `fp8`) to reduce memory usage
+- `--ai-prompt-template`: Custom prompt template with placeholders
+- `--ai-json-template`: JSON template for structured output
+- `--ai-max-tokens`: Maximum tokens for generation (default: 2048)
+- `--ai-temperature`: Temperature parameter (default: 0.7)
+
+**API Usage:**
+
+```bash
+# Start the API server
+mineru-api
+
+# Use /ai_process endpoint
+curl -X POST "http://localhost:8000/ai_process" \
+  -F "parse_result=@parsed_content.md" \
+  -F "backend=transformers" \
+  -F "model=Qwen/Qwen2.5-3B-Instruct" \
+  -F "quantization=int4" \
+  -F "prompt_template=@prompt.txt" \
+  -F "json_template=@template.json"
+```
+
+**Prompt Template Example:**
+
+Create a `prompt.txt` file:
+```
+以下是一份候选人的简历文本，请从中提取信息并填写到给定的 JSON 模板中。
+
+### 简历文本：
+{resume_text}
+
+### JSON 模板：
+{json_template}
+
+### 要求：
+1. 只输出严格符合 JSON 语法的结果，不要包含解释、说明或额外文字。
+2. 不得修改字段名称。
+3. 如果无法从简历中获取某字段信息，请填入 null 或空字符串 ""。
+4. 务必保证生成的 JSON 可以被程序直接解析。
+```
+
+**Supported Backends:**
+- `transformers`: Direct model loading (no separate server needed)
+- `vllm-engine`: vLLM synchronous engine (faster, requires GPU)
+- `vllm-async-engine`: vLLM asynchronous engine (better for concurrent requests)
+- `http-client`: Connect to external LLM server (requires `mineru-text-llm-server`)
+
+For more details, see the example files: `prompt.txt` and `template.json` in the repository root.
 
 # TODO
 

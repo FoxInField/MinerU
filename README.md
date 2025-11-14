@@ -56,9 +56,9 @@
 
 # Changelog
 
-## Custom Fork Enhancements
+## Custom Changelog
 
-- **Text LLM Processing Feature** (Custom Enhancement)
+- 2025/11/14 **Text LLM Processing Feature** (Custom Enhancement)
   - Added comprehensive text LLM processing module for AI-powered analysis of parsed PDF content
   - Support for multiple backends: `transformers`, `vllm-engine`, `vllm-async-engine`, `http-client`
   - Model quantization support: `int4`, `int8`, `fp8` to reduce GPU memory usage
@@ -67,9 +67,8 @@
   - API endpoints: `/ai_process` and `/file_parse_with_ai` for programmatic access
   - Standalone server: `mineru-text-llm-server` command for dedicated LLM service
   - Enhanced memory management with model unloading capabilities
-  - Optimized prompt template handling to prevent duplicate variable replacement
-  - Debug logging for built prompts to facilitate troubleshooting
 
+## Original Changelog
 - 2025/11/04 2.6.4 Release
   - Added timeout configuration for PDF image rendering, default is 300 seconds, can be configured via environment variable `MINERU_PDF_RENDER_TIMEOUT` to prevent long blocking of the rendering process caused by some abnormal PDF files.
   - Added CPU thread count configuration options for ONNX models, default is the system CPU core count, can be configured via environment variables `MINERU_INTRA_OP_NUM_THREADS` and `MINERU_INTER_OP_NUM_THREADS` to reduce CPU resource contention conflicts in high concurrency scenarios.

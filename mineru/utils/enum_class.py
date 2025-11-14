@@ -78,6 +78,10 @@ class ModelPath:
     paddle_table_cls = "models/TabCls/paddle_table_cls/PP-LCNet_x1_0_table_cls.onnx"
     paddle_orientation_classification = "models/OriCls/paddle_orientation_classification/PP-LCNet_x1_0_doc_ori.onnx"
 
+    # 文本模型默认路径
+    text_llm_root_hf = "Qwen/Qwen2.5-3B-Instruct"
+    text_llm_root_modelscope = "qwen/Qwen2.5-3B-Instruct"
+
 
 class SplitFlag:
     CROSS_PAGE = 'cross_page'

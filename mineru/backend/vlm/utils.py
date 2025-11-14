@@ -73,3 +73,34 @@ def set_default_batch_size() -> int:
         logger.warning(f'Error determining VRAM: {e}, using default batch_ratio: 1')
         batch_size = 1
     return batch_size
+
+
+def check_fp8_support(device_idx: int = 0) -> bool:
+    """
+    检查 GPU 是否支持 FP8 量化
+    
+    Args:
+        device_idx: GPU 设备索引
+    
+    Returns:
+        如果 GPU 支持 FP8 返回 True，否则返回 False
+    """
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return False
+        
+        major, minor = torch.cuda.get_device_capability(device_idx)
+        compute_capability = float(f"{major}.{minor}")
+        
+        # FP8 需要计算能力 >= 8.9 (Ada Lovelace 和 Hopper 架构)
+        # Ada Lovelace: 8.9, Hopper: 9.0
+        if compute_capability >= 8.9:
+            logger.info(f"GPU compute capability {major}.{minor} supports FP8 quantization")
+            return True
+        else:
+            logger.info(f"GPU compute capability {major}.{minor} does not support FP8 (requires >= 8.9)")
+            return False
+    except Exception as e:
+        logger.debug(f"Error checking FP8 support: {e}")
+        return False

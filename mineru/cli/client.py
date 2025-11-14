@@ -1,7 +1,9 @@
 # Copyright (c) Opendatalab. All rights reserved.
 import os
+import asyncio
 import click
 from pathlib import Path
+from typing import Optional
 from loguru import logger
 
 from mineru.utils.check_sys_env import is_mac_os_version_supported
@@ -148,13 +150,113 @@ if is_mac_os_version_supported():
     """,
     default='huggingface',
 )
+# AI 处理相关参数
+@click.option(
+    '--ai-process',
+    'ai_process',
+    is_flag=True,
+    default=False,
+    help='Enable AI processing after PDF parsing. The parsed result will be processed by text LLM.',
+)
+@click.option(
+    '--ai-backend',
+    'ai_backend',
+    type=click.Choice(['http-client', 'transformers', 'vllm-engine', 'vllm-async-engine']),
+    default='http-client',
+    help="""\b
+    AI processing backend type:
+      http-client: Connect to external text LLM server (requires mineru-text-llm-server).
+      transformers: Load model inside the process (no separate server needed).
+      vllm-engine: Use vllm engine inside the process (no separate server needed).
+      vllm-async-engine: Use vllm async engine inside the process (no separate server needed).
+    """,
+)
+@click.option(
+    '--ai-server-url',
+    'ai_server_url',
+    type=str,
+    default=None,
+    help='Text LLM server URL (only for http-client mode). Default: http://localhost:30001',
+)
+@click.option(
+    '--ai-model',
+    'ai_model',
+    type=str,
+    default='Qwen/Qwen2.5-3B-Instruct',
+    help='AI model name. Default: Qwen/Qwen2.5-3B-Instruct',
+)
+@click.option(
+    '--ai-model-path',
+    'ai_model_path',
+    type=str,
+    default=None,
+    help='AI model path (for transformers/vllm-engine mode). If not specified, will auto-download.',
+)
+@click.option(
+    '--ai-prompt-template',
+    'ai_prompt_template',
+    type=str,
+    default=None,
+    help='Optional prompt template for AI processing. Supports multiple placeholders: {text} (replaced by parsed content), {resume_text}, {json_template}, etc. Custom placeholders can be passed via environment variables or API.',
+)
+@click.option(
+    '--ai-max-tokens',
+    'ai_max_tokens',
+    type=int,
+    default=2048,
+    help='Maximum tokens for AI generation. Default: 2048',
+)
+@click.option(
+    '--ai-temperature',
+    'ai_temperature',
+    type=float,
+    default=0.7,
+    help='Temperature parameter for AI generation. Default: 0.7',
+)
+@click.option(
+    '--ai-device',
+    'ai_device',
+    type=str,
+    default=None,
+    help='Device for AI model inference (e.g., "cpu", "cuda", "cuda:0"). If not specified, will use the same device as PDF parsing. Use "cpu" if GPU memory is insufficient.',
+)
+@click.option(
+    '--ai-quantization',
+    'ai_quantization',
+    type=click.Choice(['fp8', 'int8', 'int4', None]),
+    default=None,
+    help="""\b
+    Quantization method for AI model:
+      fp8: FP8 quantization (only for vllm-engine/vllm-async-engine, requires GPU compute capability >= 8.9, e.g., RTX 4090, H100).
+      int8: INT8 quantization (for transformers/vllm-engine/vllm-async-engine backends, requires bitsandbytes).
+      int4: INT4 quantization (for transformers/vllm-engine/vllm-async-engine backends, requires bitsandbytes).
+    """,
+)
+@click.option(
+    '--ai-json-template',
+    'ai_json_template',
+    type=str,
+    default=None,
+    help='JSON template for prompt template placeholder {json_template}. To read from file, use: --ai-json-template "$(cat template.json)"',
+)
+@click.option(
+    '--ai-resume-text',
+    'ai_resume_text',
+    type=str,
+    default=None,
+    help='Resume text for prompt template placeholder {resume_text}. To read from file, use: --ai-resume-text "$(cat resume.txt)". If not provided and template needs it, will use parsed content as {text}.',
+)
 
 
 def main(
         ctx,
         input_path, output_dir, method, backend, lang, server_url,
         start_page_id, end_page_id, formula_enable, table_enable,
-        device_mode, virtual_vram, model_source, **kwargs
+        device_mode, virtual_vram, model_source,
+        ai_process, ai_backend, ai_server_url, ai_model, ai_model_path,
+        ai_prompt_template, ai_max_tokens, ai_temperature,
+        ai_device, ai_quantization, ai_json_template, ai_resume_text,
+        **kwargs
 ):
 
     kwargs.update(arg_parse(ctx))
@@ -207,6 +309,26 @@ def main(
                 end_page_id=end_page_id,
                 **kwargs,
             )
+            
+            # 如果启用了 AI 处理，在解析完成后进行 AI 处理
+            if ai_process:
+                asyncio.run(process_with_ai(
+                    file_name_list=file_name_list,
+                    output_dir=output_dir,
+                    backend=backend,
+                    parse_method=method,
+                    ai_backend=ai_backend,
+                    ai_server_url=ai_server_url,
+                    ai_model=ai_model,
+                    ai_model_path=ai_model_path,
+                    ai_prompt_template=ai_prompt_template,
+                    ai_max_tokens=ai_max_tokens,
+                    ai_temperature=ai_temperature,
+                    ai_device=ai_device,
+                    ai_quantization=ai_quantization,
+                    ai_json_template=ai_json_template,
+                    ai_resume_text=ai_resume_text,
+                ))
         except Exception as e:
             logger.exception(e)
 
@@ -218,6 +340,144 @@ def main(
         parse_doc(doc_path_list)
     else:
         parse_doc([Path(input_path)])
+
+async def process_with_ai(
+    file_name_list: list[str],
+    output_dir: str,
+    backend: str,
+    parse_method: str,
+    ai_backend: str,
+    ai_server_url: Optional[str],
+    ai_model: str,
+    ai_model_path: Optional[str],
+    ai_prompt_template: Optional[str],
+    ai_max_tokens: int,
+    ai_temperature: float,
+    ai_device: Optional[str],
+    ai_quantization: Optional[str],
+    ai_json_template: Optional[str] = None,
+    ai_resume_text: Optional[str] = None,
+):
+    """
+    对解析结果进行 AI 处理
+    """
+    try:
+        from mineru.backend.text_llm import generate_text_async
+        from mineru.utils.model_utils import (
+            clean_memory, 
+            unload_pipeline_models, 
+            should_unload_pipeline_models
+        )
+        from mineru.utils.config_reader import get_device as get_device_func
+        
+        # 在加载 AI 模型之前，根据 GPU 大小决定是否卸载 pipeline 模型
+        device = get_device_func()
+        if device.startswith("cuda") or device.startswith("npu"):
+            # 智能判断是否需要卸载 pipeline 模型（考虑量化）
+            need_unload = should_unload_pipeline_models(device, ai_model, ai_backend, backend, ai_quantization)
+            
+            if need_unload:
+                logger.info("Unloading pipeline models before loading AI model...")
+                unload_pipeline_models(device)
+                
+                # 卸载后再次检查显存是否足够
+                from mineru.utils.model_utils import get_vram, get_allocated_vram, estimate_llm_vram_requirement
+                total_vram = get_vram(device)
+                reserved_after = get_allocated_vram(device)
+                if total_vram and reserved_after is not None:
+                    available_after = total_vram - reserved_after
+                    ai_vram_required = estimate_llm_vram_requirement(ai_model, ai_backend, ai_quantization)
+                    if available_after < ai_vram_required * 0.8:  # 需要至少 80% 的模型大小
+                        logger.warning(
+                            f"After unloading, available VRAM ({available_after:.2f}GB) may still be insufficient "
+                            f"for AI model ({ai_vram_required:.2f}GB). "
+                            f"Consider using --ai-device cpu or a smaller model."
+                        )
+            else:
+                logger.info("Clearing GPU memory before loading AI model...")
+                clean_memory(device)
+                logger.info("GPU memory cleared.")
+        
+        for pdf_name in file_name_list:
+            # 确定解析结果目录
+            if backend.startswith("pipeline"):
+                parse_dir = os.path.join(output_dir, pdf_name, parse_method)
+            else:
+                parse_dir = os.path.join(output_dir, pdf_name, "vlm")
+            
+            if not os.path.exists(parse_dir):
+                logger.warning(f"Parse directory not found: {parse_dir}")
+                continue
+            
+            # 读取解析结果（始终使用最终结果 .md 文件）
+            parse_text = None
+            md_path = os.path.join(parse_dir, f"{pdf_name}.md")
+            if os.path.exists(md_path):
+                with open(md_path, 'r', encoding='utf-8') as f:
+                    parse_text = f.read()
+            
+            if not parse_text:
+                logger.warning(f"No parse result found for {pdf_name}")
+                continue
+            
+            # 调用 AI 处理
+            logger.info(f"Processing {pdf_name} with AI (backend: {ai_backend})...")
+            try:
+                # 如果指定了 ai_device，设置环境变量
+                if ai_device is not None:
+                    original_device = os.environ.get('MINERU_DEVICE_MODE')
+                    os.environ['MINERU_DEVICE_MODE'] = ai_device
+                    logger.info(f"Using device '{ai_device}' for AI model")
+                
+                # 准备额外的占位符参数
+                extra_kwargs = {}
+                if ai_json_template is not None:
+                    extra_kwargs["json_template"] = ai_json_template
+                # 如果resume_text没有提供，但模板需要它，使用parse_text作为resume_text
+                if ai_resume_text is not None:
+                    extra_kwargs["resume_text"] = ai_resume_text
+                elif ai_prompt_template and "{resume_text}" in ai_prompt_template:
+                    # 如果模板中有{resume_text}但没有提供，使用parse_text
+                    extra_kwargs["resume_text"] = parse_text
+                
+                ai_result = await generate_text_async(
+                    text=parse_text,
+                    backend=ai_backend,
+                    model_path=ai_model_path,
+                    server_url=ai_server_url,
+                    prompt_template=ai_prompt_template,
+                    max_tokens=ai_max_tokens,
+                    temperature=ai_temperature,
+                    model=ai_model,
+                    quantization=ai_quantization,
+                    **extra_kwargs,
+                )
+                
+                # 恢复原始设备设置
+                if ai_device is not None:
+                    if original_device is not None:
+                        os.environ['MINERU_DEVICE_MODE'] = original_device
+                    else:
+                        os.environ.pop('MINERU_DEVICE_MODE', None)
+                
+                # 保存 AI 处理结果
+                ai_output_path = os.path.join(parse_dir, f"{pdf_name}_ai_result.txt")
+                with open(ai_output_path, 'w', encoding='utf-8') as f:
+                    f.write(ai_result)
+                
+                logger.info(f"AI processing completed for {pdf_name}. Result saved to: {ai_output_path}")
+                
+            except Exception as e:
+                logger.error(f"Failed to process {pdf_name} with AI: {e}")
+                logger.exception(e)
+                
+    except ImportError as e:
+        logger.error(f"Failed to import text LLM module: {e}")
+        logger.error("Please ensure mineru[all] or mineru[vllm] is installed for AI processing.")
+    except Exception as e:
+        logger.error(f"Error in AI processing: {e}")
+        logger.exception(e)
+
 
 if __name__ == '__main__':
     main()

@@ -94,7 +94,108 @@ class TextLLMSingleton:
                     torch.cuda.ipc_collect()
                     gc.collect()
                     
-                    # 检查可用显存
+                    # 按照 CLI 的逻辑，在加载 AI 模型之前检查显存，如果不足则清理所有模型
+                    try:
+                        from mineru.utils.model_utils import (
+                            unload_pipeline_models,
+                            clean_memory,
+                            get_vram,
+                            get_allocated_vram,
+                            estimate_llm_vram_requirement,
+                            _move_model_to_cpu,
+                        )
+                        
+                        # 获取模型名称（用于判断显存需求）
+                        ai_model = kwargs.get("model", "Qwen/Qwen2.5-3B-Instruct")
+                        
+                        # 检查显存是否足够
+                        total_vram = get_vram(device)
+                        allocated_vram = get_allocated_vram(device)
+                        
+                        if total_vram and allocated_vram is not None:
+                            available_vram = total_vram - allocated_vram
+                            ai_vram_required = estimate_llm_vram_requirement(ai_model, "transformers", quantization)
+                            
+                            # 需要至少 1.2 倍的模型大小（考虑加载时的临时显存）
+                            required_vram = ai_vram_required * 1.2
+                            
+                            if available_vram < required_vram:
+                                logger.info(
+                                    f"Low VRAM detected: Available={available_vram:.2f}GB, "
+                                    f"Required={required_vram:.2f}GB (model={ai_vram_required:.2f}GB). "
+                                    f"Unloading all models before loading AI model..."
+                                )
+                                
+                                # 清理 pipeline 模型
+                                unload_pipeline_models(device)
+                                
+                                # 清理 VLM 模型
+                                try:
+                                    from mineru.backend.vlm.vlm_analyze import ModelSingleton as VLMModelSingleton
+                                    
+                                    vlm_singleton = VLMModelSingleton()
+                                    if hasattr(vlm_singleton, '_models') and vlm_singleton._models:
+                                        model_count = len(vlm_singleton._models)
+                                        for key, model in list(vlm_singleton._models.items()):
+                                            try:
+                                                _move_model_to_cpu(model)
+                                                del model
+                                            except Exception as e:
+                                                logger.debug(f"Error moving VLM model {key} to CPU: {e}")
+                                        vlm_singleton._models.clear()
+                                        logger.info(f"Cleared {model_count} VLM models from ModelSingleton")
+                                        
+                                        # 强制垃圾回收
+                                        for _ in range(3):
+                                            gc.collect()
+                                        clean_memory(device)
+                                except Exception as e:
+                                    logger.debug(f"Failed to unload VLM models: {e}")
+                                
+                                # 清理后再次检查显存
+                                allocated_after = get_allocated_vram(device)
+                                if total_vram and allocated_after is not None:
+                                    available_after = total_vram - allocated_after
+                                    logger.info(f"After cleanup, available VRAM: {available_after:.2f}GB")
+                                    if available_after < ai_vram_required * 0.8:
+                                        logger.warning(
+                                            f"Available VRAM ({available_after:.2f}GB) may still be insufficient "
+                                            f"for AI model ({ai_vram_required:.2f}GB). "
+                                            f"Consider using quantization or a smaller model."
+                                        )
+                            else:
+                                logger.info("Clearing GPU memory before loading AI model...")
+                                clean_memory(device)
+                                logger.info("GPU memory cleared.")
+                        else:
+                            # 无法获取显存信息，保守起见清理所有模型
+                            logger.warning("Cannot get GPU memory info, unloading all models to be safe...")
+                            unload_pipeline_models(device)
+                            
+                            # 清理 VLM 模型
+                            try:
+                                from mineru.backend.vlm.vlm_analyze import ModelSingleton as VLMModelSingleton
+                                
+                                vlm_singleton = VLMModelSingleton()
+                                if hasattr(vlm_singleton, '_models') and vlm_singleton._models:
+                                    for key, model in list(vlm_singleton._models.items()):
+                                        try:
+                                            _move_model_to_cpu(model)
+                                            del model
+                                        except Exception as e:
+                                            logger.debug(f"Error moving VLM model {key} to CPU: {e}")
+                                    vlm_singleton._models.clear()
+                                    
+                                    for _ in range(3):
+                                        gc.collect()
+                                    clean_memory(device)
+                            except Exception as e:
+                                logger.debug(f"Failed to unload VLM models: {e}")
+                                
+                    except Exception as e:
+                        logger.warning(f"Failed to check/unload models: {e}, continuing with model loading...")
+                    
+                    # 检查可用显存（在清理后重新检查）
                     total_vram = torch.cuda.get_device_properties(device_idx).total_memory / (1024 ** 3)
                     reserved_vram = torch.cuda.memory_reserved(device_idx) / (1024 ** 3)
                     available_vram = total_vram - reserved_vram

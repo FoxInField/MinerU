@@ -182,8 +182,8 @@ if is_mac_os_version_supported():
     '--ai-model',
     'ai_model',
     type=str,
-    default='Qwen/Qwen2.5-3B-Instruct',
-    help='AI model name. Default: Qwen/Qwen2.5-3B-Instruct',
+    default='Qwen/Qwen2.5-1.5B-Instruct',
+    help='AI model name. Default: Qwen/Qwen2.5-1.5B-Instruct',
 )
 @click.option(
     '--ai-model-path',

@@ -79,8 +79,8 @@ class ModelPath:
     paddle_orientation_classification = "models/OriCls/paddle_orientation_classification/PP-LCNet_x1_0_doc_ori.onnx"
 
     # 文本模型默认路径
-    text_llm_root_hf = "Qwen/Qwen2.5-3B-Instruct"
-    text_llm_root_modelscope = "qwen/Qwen2.5-3B-Instruct"
+    text_llm_root_hf = "Qwen/Qwen2.5-1.5B-Instruct"
+    text_llm_root_modelscope = "qwen/Qwen2.5-1.5B-Instruct"
 
 
 class SplitFlag:

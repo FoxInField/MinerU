@@ -106,7 +106,7 @@ class TextLLMSingleton:
                         )
                         
                         # 获取模型名称（用于判断显存需求）
-                        ai_model = kwargs.get("model", "Qwen/Qwen2.5-3B-Instruct")
+                        ai_model = kwargs.get("model", "Qwen/Qwen2.5-1.5B-Instruct")
                         
                         # 检查显存是否足够
                         total_vram = get_vram(device)
@@ -238,59 +238,13 @@ class TextLLMSingleton:
                         )
                         logger.info(f"Model loaded with {quantization.upper()} quantization on {device}")
                     else:
-                        # 如果可用显存小于 4GB，使用保守加载方式（先加载到 CPU）
-                        if available_vram < 4.0:
-                            logger.info(f"Low VRAM detected ({available_vram:.2f}GB), loading model to CPU first...")
-                            
-                            # 根据 transformers 版本使用不同的参数名
-                            if version.parse(transformers_version) >= version.parse("4.56.0"):
-                                dtype_param = {"dtype": torch.float16}
-                            else:
-                                dtype_param = {"torch_dtype": torch.float16}
-                            
-                            # 加载到 CPU
-                            model = AutoModelForCausalLM.from_pretrained(
-                                model_path,
-                                **dtype_param,
-                                low_cpu_mem_usage=True,
-                                device_map="cpu",
-                                trust_remote_code=True,
-                            )
-                            
-                            # 如果模型是 FP32，转换为 FP16
-                            if next(model.parameters()).dtype == torch.float32:
-                                logger.info("Converting model from FP32 to FP16...")
-                                model = model.half()
-                            
-                            # 计算模型大小（只计算参数，不包括 buffers）
-                            dtype_size_map = {torch.float32: 4, torch.float16: 2, torch.bfloat16: 2}
-                            model_size = sum(
-                                p.numel() * dtype_size_map.get(p.dtype, 2) 
-                                for p in model.parameters()
-                            ) / (1024 ** 3)
-                            
-                            # 检查显存是否足够
-                            required_vram = model_size * 1.2
-                            if available_vram < required_vram:
-                                raise RuntimeError(
-                                    f"Insufficient GPU memory: Available {available_vram:.2f}GB, "
-                                    f"Model requires {required_vram:.2f}GB (model size: {model_size:.2f}GB). "
-                                    f"Consider using --ai-quantization int8 or int4 to reduce memory usage."
-                                )
-                            
-                            # 移动到 GPU
-                            logger.info(f"Moving model to GPU (size: {model_size:.2f}GB)...")
-                            model = model.to(device)
-                            torch.cuda.empty_cache()
-                            gc.collect()
-                        else:
-                            # 显存充足，使用 device_map
-                            model = AutoModelForCausalLM.from_pretrained(
-                                model_path,
-                                device_map={"": device},
-                                **{dtype_key: "auto"},
-                                trust_remote_code=True,
-                            )
+                        # 直接加载到 GPU，使用 device_map
+                        model = AutoModelForCausalLM.from_pretrained(
+                            model_path,
+                            device_map={"": device},
+                            **{dtype_key: "auto"},
+                            trust_remote_code=True,
+                        )
                 else:
                     # CPU 或其他设备（量化不支持 CPU）
                     if use_quantization:
@@ -516,7 +470,7 @@ async def generate_text_async(
         
         api_url = f"{server_url}/v1/chat/completions"
         payload = {
-            "model": kwargs.get("model", "Qwen/Qwen2.5-3B-Instruct"),
+            "model": kwargs.get("model", "Qwen/Qwen2.5-1.5B-Instruct"),
             "messages": [
                 {
                     "role": "user",

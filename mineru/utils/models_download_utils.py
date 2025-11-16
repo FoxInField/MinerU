@@ -11,7 +11,7 @@ def auto_download_and_get_model_root_path(relative_path: str, repo_mode='pipelin
     - 如果输入文件: 返回本地文件绝对路径
     - 如果输入目录: 返回本地缓存下与 relative_path 同结构的相对路径字符串
     :param repo_mode: 指定仓库模式，'pipeline'、'vlm' 或 'text_llm'
-    :param relative_path: 文件或目录相对路径，对于 text_llm 模式，可以是模型名称（如 "Qwen/Qwen2.5-3B-Instruct"）或 "/" 使用默认模型
+    :param relative_path: 文件或目录相对路径，对于 text_llm 模式，可以是模型名称（如 "Qwen/Qwen2.5-1.5B-Instruct"）或 "/" 使用默认模型
     :return: 本地文件绝对路径或相对路径
     """
     model_source = os.getenv('MINERU_MODEL_SOURCE', "huggingface")
@@ -74,10 +74,10 @@ def auto_download_and_get_model_root_path(relative_path: str, repo_mode='pipelin
             # 使用默认模型
             cache_dir = snapshot_download(repo)
         else:
-            # 使用指定的模型名称（如 "Qwen/Qwen2.5-3B-Instruct"）
+            # 使用指定的模型名称（如 "Qwen/Qwen2.5-1.5B-Instruct"）
             # 如果 relative_path 已经是完整的模型路径，直接使用
             if "/" in relative_path:
-                # 这是一个完整的模型路径，如 "Qwen/Qwen2.5-3B-Instruct"
+                # 这是一个完整的模型路径，如 "Qwen/Qwen2.5-1.5B-Instruct"
                 cache_dir = snapshot_download(relative_path)
             else:
                 # 相对路径，从默认仓库下载

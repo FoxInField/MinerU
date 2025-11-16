@@ -14,13 +14,44 @@ except ImportError:
 CONFIG_FILE_NAME = os.getenv('MINERU_TOOLS_CONFIG_JSON', 'mineru.json')
 
 
-def read_config():
-    if os.path.isabs(CONFIG_FILE_NAME):
-        config_file = CONFIG_FILE_NAME
-    else:
-        home_dir = os.path.expanduser('~')
-        config_file = os.path.join(home_dir, CONFIG_FILE_NAME)
+def _find_project_root():
+    """
+    查找项目根目录（包含 pyproject.toml 的目录）
+    """
+    current_file = os.path.abspath(__file__)
+    current_dir = os.path.dirname(current_file)
+    
+    # 向上查找，直到找到包含 pyproject.toml 的目录
+    search_dir = current_dir
+    for _ in range(10):  # 最多向上查找10层
+        if os.path.exists(os.path.join(search_dir, 'pyproject.toml')):
+            return search_dir
+        parent_dir = os.path.dirname(search_dir)
+        if parent_dir == search_dir:  # 已经到达根目录
+            break
+        search_dir = parent_dir
+    
+    # 如果找不到，返回当前目录的父目录（假设项目结构是 mineru/utils/config_reader.py）
+    return os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 
+
+def read_config():
+    """
+    从项目目录下的 mineru/mineru.json 读取配置文件
+    """
+    # 如果环境变量指定了绝对路径，优先使用
+    if os.getenv('MINERU_TOOLS_CONFIG_JSON'):
+        env_config = os.getenv('MINERU_TOOLS_CONFIG_JSON')
+        if os.path.isabs(env_config) and os.path.exists(env_config):
+            with open(env_config, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    
+    # 查找项目根目录
+    project_root = _find_project_root()
+    
+    # 配置文件路径：项目根目录/mineru/mineru.json
+    config_file = os.path.join(project_root, 'mineru', CONFIG_FILE_NAME)
+    
     if not os.path.exists(config_file):
         # logger.warning(f'{config_file} not found, using default configuration')
         return None

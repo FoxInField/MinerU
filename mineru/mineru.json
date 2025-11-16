@@ -28,7 +28,7 @@
         "text_llm": ""
     },
     "ai-config": {
-        "model": "Qwen/Qwen2.5-1.5B-Instruct",
+        "model": "Qwen/Qwen2.5-3B-Instruct",
         "quantization": "int4"
     },
     "config_version": "1.3.1"

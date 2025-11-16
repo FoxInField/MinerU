@@ -4,9 +4,38 @@
   "gender": "",
   "phone": "",
   "email": "",
-  "education": "",
-  "Project Experience":[],
-  "Internship Experience": [],
+  "education": [
+    {
+      "school": "",
+      "degree": "",
+      "major": "",
+      "start_date": "",
+      "end_date": ""
+    }
+  ],
+  "Project Experience": [
+    {
+      "project_name": "",
+      "project_start_date": "",
+      "project_end_date": "",
+      "roles": "",
+      "project_description": ""
+    }
+  ],
+  "Internship Experience": [
+    {
+      "internship_name": "",
+      "internship_description": "",
+      "internship_start_date": "",
+      "internship_end_date": ""
+    }
+  ],
   "skills": [],
-  "awards": []
+  "awards": [
+    {
+      "award_name": "",
+      "award_description": "",
+      "award_date": ""
+    }
+  ]
 }

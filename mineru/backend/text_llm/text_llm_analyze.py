@@ -303,41 +303,29 @@ class TextLLMSingleton:
         return self._models[key]
 
 
-async def generate_text_async(
+def build_prompt(
     text: str,
-    backend: str = "http-client",
-    model_path: str | None = None,
-    server_url: str | None = None,
     prompt_template: str | None = None,
-    max_tokens: int = 2048,
-    temperature: float = 0.7,
-    quantization: str | None = None,
     **kwargs,
 ) -> str:
     """
-    异步生成文本
+    构建提示词
     
     Args:
         text: 输入文本（如果prompt_template中有{text}占位符，会被替换）
-        backend: 后端类型
-        model_path: 模型路径
-        server_url: HTTP服务器地址（仅http-client模式）
         prompt_template: 提示词模板，支持多个占位符：
             - {text}: 会被text参数替换
             - {resume_text}: 需要从kwargs中获取
             - {json_template}: 需要从kwargs中获取
             - 其他自定义占位符：从kwargs中获取同名参数
-        max_tokens: 最大token数
-        temperature: 温度参数
         **kwargs: 其他参数，包括：
             - resume_text: 简历文本（用于多占位符模板）
             - json_template: JSON模板（用于多占位符模板）
             - 其他自定义占位符的值
     
     Returns:
-        生成的文本
+        构建好的完整提示词
     """
-    # 构建提示词
     if prompt_template:
         # 检查模板中实际使用了哪些占位符
         import re
@@ -364,7 +352,7 @@ async def generate_text_async(
             missing = str(e).strip("'")
             raise ValueError(
                 f"提示词模板中使用了占位符 {{{missing}}}，但未提供对应的值。"
-                f"请通过kwargs参数提供，例如：generate_text_async(..., {missing}='value')"
+                f"请通过kwargs参数提供，例如：build_prompt(..., {missing}='value')"
             )
     else:
         prompt = f"你是一名资深HR，收到了以下简历：\n\n{text}\n\n请总结求职者的优势和不足，给出是否进入下一轮面试的建议。"
@@ -377,8 +365,38 @@ async def generate_text_async(
     logger.info("=" * 80)
     logger.info(f"提示词长度: {len(prompt)} 字符")
     
-    # 清理 kwargs，只保留模型加载需要的参数
-    # 移除占位符相关的参数（json_template, resume_text等），避免传递给模型加载函数
+    return prompt
+
+
+async def generate_text_async(
+    prompt: str,
+    backend: str = "http-client",
+    model_path: str | None = None,
+    server_url: str | None = None,
+    max_tokens: int = 2048,
+    temperature: float = 0.7,
+    quantization: str | None = None,
+    **kwargs,
+) -> str:
+    """
+    异步生成文本
+    
+    Args:
+        prompt: 完整的提示词
+        backend: 后端类型
+        model_path: 模型路径
+        server_url: HTTP服务器地址（仅http-client模式）
+        max_tokens: 最大token数
+        temperature: 温度参数
+        quantization: 量化方法
+        **kwargs: 其他参数，包括：
+            - model: 模型名称
+            - timeout: 超时时间（仅http-client模式）
+    
+    Returns:
+        生成的文本
+    """
+    
     model_kwargs = {}
     if quantization:
         model_kwargs["quantization"] = quantization
@@ -407,9 +425,6 @@ async def generate_text_async(
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
-        
-        # 客户端只负责发送请求和返回文本，输出格式由提示词控制
-        # 不再设置 response_format，让服务器根据提示词决定输出格式
         
         timeout = kwargs.get("timeout", 300.0)
         async with httpx.AsyncClient(timeout=timeout) as client:

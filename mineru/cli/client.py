@@ -362,7 +362,6 @@ async def process_with_ai(
     对解析结果进行 AI 处理
     """
     try:
-        from mineru.backend.text_llm import generate_text_async
         from mineru.utils.model_utils import (
             clean_memory, 
             unload_pipeline_models, 
@@ -440,17 +439,24 @@ async def process_with_ai(
                     # 如果模板中有{resume_text}但没有提供，使用parse_text
                     extra_kwargs["resume_text"] = parse_text
                 
-                ai_result = await generate_text_async(
+                # 构建提示词
+                from mineru.backend.text_llm import build_prompt, generate_text_async
+                prompt = build_prompt(
                     text=parse_text,
+                    prompt_template=ai_prompt_template,
+                    **extra_kwargs,
+                )
+                
+                # 调用生成函数
+                ai_result = await generate_text_async(
+                    prompt=prompt,
                     backend=ai_backend,
                     model_path=ai_model_path,
                     server_url=ai_server_url,
-                    prompt_template=ai_prompt_template,
                     max_tokens=ai_max_tokens,
                     temperature=ai_temperature,
                     model=ai_model,
                     quantization=ai_quantization,
-                    **extra_kwargs,
                 )
                 
                 # 恢复原始设备设置

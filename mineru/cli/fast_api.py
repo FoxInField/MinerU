@@ -280,25 +280,30 @@ async def call_vllm_api(
         生成的文本结果
     """
     try:
-        from mineru.backend.text_llm import generate_text_async
+        from mineru.backend.text_llm import build_prompt, generate_text_async
         
         # 如果是http-client模式且未指定server_url，使用默认值
         if backend == "http-client" and vllm_server_url is None:
             vllm_server_url = "http://localhost:30001"
         
+        # 构建提示词
+        prompt = build_prompt(
+            text=text,
+            prompt_template=prompt_template,
+            **kwargs,
+        )
+        
         # 调用统一的生成函数
         result = await generate_text_async(
-            text=text,
+            prompt=prompt,
             backend=backend,
             model_path=model_path,
             server_url=vllm_server_url,
-            prompt_template=prompt_template,
             max_tokens=max_tokens,
             temperature=temperature,
             model=model,
             timeout=timeout,
             quantization=quantization,
-            **kwargs,
         )
         
         return result
@@ -401,7 +406,6 @@ async def parse_pdf_with_ai(
     max_tokens: int = Form(2048, description="最大生成token数"),
     temperature: float = Form(0.7, description="温度参数"),
     quantization: Optional[str] = Form(None, description="量化方法（仅vllm-engine和vllm-async-engine支持）：fp8（需要GPU计算能力>=8.9）、int8、int4"),
-    use_md_for_ai: bool = Form(True, description="如果为True，使用md_content进行AI处理；否则使用middle_json"),
     resume_text: Optional[str] = Form(None, description="简历文本（用于prompt_template中的{resume_text}占位符）"),
     json_template: Optional[str] = Form(None, description="JSON模板（用于prompt_template中的{json_template}占位符）"),
 ):
@@ -476,8 +480,8 @@ async def parse_pdf_with_ai(
             server_url=server_url,
             f_draw_layout_bbox=False,
             f_draw_span_bbox=False,
-            f_dump_md=return_md or use_md_for_ai,  # 如果要用md进行AI处理，确保生成md
-            f_dump_middle_json=return_middle_json or (not use_md_for_ai),  # 如果不用md，确保生成middle_json
+            f_dump_md=True,  # 始终需要生成md用于AI处理
+            f_dump_middle_json=return_middle_json,  # 根据用户需求决定是否生成middle_json
             f_dump_model_output=return_model_output,
             f_dump_orig_pdf=False,
             f_dump_content_list=return_content_list,
@@ -500,12 +504,8 @@ async def parse_pdf_with_ai(
             if not os.path.exists(parse_dir):
                 continue
 
-            # 读取解析结果
-            parse_text = None
-            if use_md_for_ai:
-                parse_text = get_infer_result(".md", pdf_name, parse_dir)
-            else:
-                parse_text = get_infer_result("_middle.json", pdf_name, parse_dir)
+            # 读取解析结果（始终使用md）
+            parse_text = get_infer_result(".md", pdf_name, parse_dir)
             
             # 如果找到了解析结果，调用AI处理
             if parse_text:

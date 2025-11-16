@@ -179,13 +179,6 @@ if is_mac_os_version_supported():
     help='Text LLM server URL (only for http-client mode). Default: http://localhost:30001',
 )
 @click.option(
-    '--ai-model',
-    'ai_model',
-    type=str,
-    default='Qwen/Qwen2.5-1.5B-Instruct',
-    help='AI model name. Default: Qwen/Qwen2.5-1.5B-Instruct',
-)
-@click.option(
     '--ai-model-path',
     'ai_model_path',
     type=str,
@@ -221,18 +214,6 @@ if is_mac_os_version_supported():
     help='Device for AI model inference (e.g., "cpu", "cuda", "cuda:0"). If not specified, will use the same device as PDF parsing. Use "cpu" if GPU memory is insufficient.',
 )
 @click.option(
-    '--ai-quantization',
-    'ai_quantization',
-    type=click.Choice(['fp8', 'int8', 'int4', None]),
-    default=None,
-    help="""\b
-    Quantization method for AI model:
-      fp8: FP8 quantization (only for vllm-engine/vllm-async-engine, requires GPU compute capability >= 8.9, e.g., RTX 4090, H100).
-      int8: INT8 quantization (for transformers/vllm-engine/vllm-async-engine backends, requires bitsandbytes).
-      int4: INT4 quantization (for transformers/vllm-engine/vllm-async-engine backends, requires bitsandbytes).
-    """,
-)
-@click.option(
     '--ai-json-template',
     'ai_json_template',
     type=str,
@@ -253,9 +234,9 @@ def main(
         input_path, output_dir, method, backend, lang, server_url,
         start_page_id, end_page_id, formula_enable, table_enable,
         device_mode, virtual_vram, model_source,
-        ai_process, ai_backend, ai_server_url, ai_model, ai_model_path,
+        ai_process, ai_backend, ai_server_url, ai_model_path,
         ai_prompt_template, ai_max_tokens, ai_temperature,
-        ai_device, ai_quantization, ai_json_template, ai_resume_text,
+        ai_device, ai_json_template, ai_resume_text,
         **kwargs
 ):
 
@@ -319,13 +300,11 @@ def main(
                     parse_method=method,
                     ai_backend=ai_backend,
                     ai_server_url=ai_server_url,
-                    ai_model=ai_model,
                     ai_model_path=ai_model_path,
                     ai_prompt_template=ai_prompt_template,
                     ai_max_tokens=ai_max_tokens,
                     ai_temperature=ai_temperature,
                     ai_device=ai_device,
-                    ai_quantization=ai_quantization,
                     ai_json_template=ai_json_template,
                     ai_resume_text=ai_resume_text,
                 ))
@@ -348,19 +327,27 @@ async def process_with_ai(
     parse_method: str,
     ai_backend: str,
     ai_server_url: Optional[str],
-    ai_model: str,
     ai_model_path: Optional[str],
     ai_prompt_template: Optional[str],
     ai_max_tokens: int,
     ai_temperature: float,
     ai_device: Optional[str],
-    ai_quantization: Optional[str],
     ai_json_template: Optional[str] = None,
     ai_resume_text: Optional[str] = None,
 ):
     """
     对解析结果进行 AI 处理
     """
+    # 从配置文件读取模型名称和量化方法
+    from mineru.utils.config_reader import get_ai_config
+    ai_config = get_ai_config()
+    
+    # 从配置文件读取，如果没有则使用默认值
+    ai_model = 'Qwen/Qwen2.5-1.5B-Instruct'  # 默认值
+    ai_quantization = None  # 默认值
+    if ai_config:
+        ai_model = ai_config.get('model', ai_model)
+        ai_quantization = ai_config.get('quantization', ai_quantization)
     try:
         from mineru.utils.model_utils import (
             clean_memory, 

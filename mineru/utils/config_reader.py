@@ -134,3 +134,30 @@ def get_local_models_dir():
     if models_dir is None:
         logger.warning(f"'models-dir' not found in {CONFIG_FILE_NAME}, use None as default")
     return models_dir
+
+
+def get_ai_config():
+    """
+    从配置文件读取 AI 相关配置
+    
+    Returns:
+        dict: 包含以下键的字典：
+            - model: 模型名称（如 "Qwen/Qwen2.5-1.5B-Instruct"）
+            - quantization: 量化方法（"fp8", "int8", "int4" 或 None）
+        如果配置文件中没有相关配置，返回 None
+    """
+    config = read_config()
+    if config is None:
+        return None
+    
+    ai_config = config.get('ai-config', None)
+    if ai_config is None:
+        return None
+    
+    result = {}
+    if 'model' in ai_config:
+        result['model'] = ai_config['model']
+    if 'quantization' in ai_config:
+        result['quantization'] = ai_config['quantization']
+    
+    return result if result else None

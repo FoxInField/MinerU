@@ -252,13 +252,11 @@ async def call_text_llm_api(
     text: str,
     backend: str = "http-client",
     vllm_server_url: Optional[str] = None,
-    model: str = "Qwen/Qwen2.5-1.5B-Instruct",
     model_path: Optional[str] = None,
     prompt_template: Optional[str] = None,
     max_tokens: int = 2048,
     temperature: float = 0.7,
     timeout: float = 300.0,
-    quantization: Optional[str] = None,
     **kwargs,
 ) -> str:
     """
@@ -268,7 +266,6 @@ async def call_text_llm_api(
         text: 要处理的文本内容（如果prompt_template中有{text}占位符，会被替换）
         backend: 后端类型，支持 'http-client'（默认，需要外部服务器）、'transformers'（API内部）、'vllm-engine'（API内部）、'vllm-async-engine'（API内部）
         vllm_server_url: vllm服务器地址（仅http-client模式需要），如果为None则使用默认值
-        model: 模型名称，默认为 Qwen/Qwen2.5-1.5B-Instruct
         model_path: 模型路径（transformers/vllm-engine模式），如果为None则自动下载
         prompt_template: 可选的提示词模板，支持多个占位符（{text}, {resume_text}, {json_template}等）
         max_tokens: 最大生成token数
@@ -281,6 +278,15 @@ async def call_text_llm_api(
     """
     try:
         from mineru.backend.text_llm import build_prompt, generate_text_async
+        from mineru.utils.config_reader import get_ai_config
+        
+        # 从配置文件读取模型名称和量化方法
+        ai_config = get_ai_config()
+        model = 'Qwen/Qwen2.5-1.5B-Instruct'  # 默认值
+        quantization = None  # 默认值
+        if ai_config:
+            model = ai_config.get('model', model)
+            quantization = ai_config.get('quantization', quantization)
         
         # 如果是http-client模式且未指定server_url，使用默认值
         if backend == "http-client" and vllm_server_url is None:
@@ -318,12 +324,10 @@ async def ai_process(
     parse_result: str = Form(..., description="解析结果文本（可以是md_content或middle_json的字符串形式）"),
     backend: str = Form("http-client", description="后端类型：http-client（需要外部服务器）、transformers（API内部）、vllm-engine（API内部）、vllm-async-engine（API内部）"),
     vllm_server_url: Optional[str] = Form(None, description="vllm服务器地址（仅http-client模式需要），如果为空则使用默认值"),
-    model: str = Form("Qwen/Qwen2.5-1.5B-Instruct", description="模型名称"),
     model_path: Optional[str] = Form(None, description="模型路径（transformers/vllm-engine模式），如果为空则自动下载"),
     prompt_template: Optional[str] = Form(None, description="可选的提示词模板，支持多个占位符：{text}（会被parse_result替换）、{resume_text}、{json_template}等自定义占位符"),
     max_tokens: int = Form(2048, description="最大生成token数"),
     temperature: float = Form(0.7, description="温度参数"),
-    quantization: Optional[str] = Form(None, description="量化方法（仅vllm-engine和vllm-async-engine支持）：fp8（需要GPU计算能力>=8.9）、int8、int4"),
     # 支持自定义占位符，通过额外的Form参数传递
     resume_text: Optional[str] = Form(None, description="简历文本（用于prompt_template中的{resume_text}占位符）"),
     json_template: Optional[str] = Form(None, description="JSON模板（用于prompt_template中的{json_template}占位符）"),
@@ -353,14 +357,19 @@ async def ai_process(
             text=parse_result,
             backend=backend,
             vllm_server_url=vllm_server_url,
-            model=model,
             model_path=model_path,
             prompt_template=prompt_template,
             max_tokens=max_tokens,
             temperature=temperature,
-            quantization=quantization,
             **extra_kwargs,
         )
+        
+        # 从配置文件读取模型名称用于返回
+        from mineru.utils.config_reader import get_ai_config
+        ai_config = get_ai_config()
+        model = 'Qwen/Qwen2.5-1.5B-Instruct'  # 默认值
+        if ai_config:
+            model = ai_config.get('model', model)
         
         return JSONResponse(
             status_code=200,
@@ -400,12 +409,10 @@ async def parse_pdf_with_ai(
     # AI处理相关参数
     ai_backend: str = Form("http-client", description="AI处理后端类型：http-client（需要外部服务器）、transformers（API内部）、vllm-engine（API内部）、vllm-async-engine（API内部）"),
     vllm_server_url: Optional[str] = Form(None, description="vllm服务器地址（仅http-client模式需要），如果为空则使用默认值"),
-    model: str = Form("Qwen/Qwen2.5-1.5B-Instruct", description="模型名称"),
     model_path: Optional[str] = Form(None, description="模型路径（transformers/vllm-engine模式），如果为空则自动下载"),
     prompt_template: Optional[str] = Form(None, description="可选的提示词模板，支持多个占位符：{text}（会被解析结果替换）、{resume_text}、{json_template}等自定义占位符"),
     max_tokens: int = Form(2048, description="最大生成token数"),
     temperature: float = Form(0.7, description="温度参数"),
-    quantization: Optional[str] = Form(None, description="量化方法（仅vllm-engine和vllm-async-engine支持）：fp8（需要GPU计算能力>=8.9）、int8、int4"),
     json_template: Optional[str] = Form(None, description="JSON模板（用于prompt_template中的{json_template}占位符）"),
 ):
     """
@@ -521,12 +528,10 @@ async def parse_pdf_with_ai(
                         text=parse_text,
                         backend=ai_backend,
                         vllm_server_url=vllm_server_url,
-                        model=model,
                         model_path=model_path,
                         prompt_template=prompt_template,
                         max_tokens=max_tokens,
                         temperature=temperature,
-                        quantization=quantization,
                         **extra_kwargs,
                     )
                     data["ai_result"] = ai_result
@@ -556,6 +561,13 @@ async def parse_pdf_with_ai(
                     for image_path in image_paths
                 }
 
+        # 从配置文件读取模型名称用于返回
+        from mineru.utils.config_reader import get_ai_config
+        ai_config = get_ai_config()
+        model = 'Qwen/Qwen2.5-1.5B-Instruct'  # 默认值
+        if ai_config:
+            model = ai_config.get('model', model)
+        
         return JSONResponse(
             status_code=200,
             content={

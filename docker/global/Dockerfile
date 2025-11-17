@@ -20,11 +20,14 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copy necessary files for local code installation
+# Copy project root files first
+COPY pyproject.toml /app/
+COPY README.md /app/
+# Copy mineru package directory
 COPY mineru/ /app/mineru/
-COPY pyproject.toml /app/mineru/
 
 # Install mineru from local code (editable mode)
-RUN cd /app/mineru && \
+RUN cd /app && \
     python3 -m pip install -e '.[core]' --break-system-packages && \
     python3 -m pip cache purge
 

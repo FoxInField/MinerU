@@ -162,11 +162,11 @@ if is_mac_os_version_supported():
     '--ai-backend',
     'ai_backend',
     type=click.Choice(['http-client', 'transformers', 'vllm-engine', 'vllm-async-engine']),
-    default='http-client',
+    default='transformers',
     help="""\b
     AI processing backend type:
+      transformers: Load model inside the process (no separate server needed). (default)
       http-client: Connect to external text LLM server (requires mineru-text-llm-server).
-      transformers: Load model inside the process (no separate server needed).
       vllm-engine: Use vllm engine inside the process (no separate server needed).
       vllm-async-engine: Use vllm async engine inside the process (no separate server needed).
     """,

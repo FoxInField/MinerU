@@ -44,9 +44,19 @@ def download_and_modify_json(url, local_filename, modifications):
 def configure_model(model_dir, model_type):
     """配置模型"""
     json_url = 'https://gcore.jsdelivr.net/gh/opendatalab/MinerU@master/mineru.template.json'
-    config_file_name = os.getenv('MINERU_TOOLS_CONFIG_JSON', 'mineru.json')
-    home_dir = os.path.expanduser('~')
-    config_file = os.path.join(home_dir, config_file_name)
+    
+    # 如果环境变量指定了绝对路径，使用环境变量指定的路径
+    env_config = os.getenv('MINERU_TOOLS_CONFIG_JSON')
+    if env_config and os.path.isabs(env_config):
+        config_file = env_config
+    else:
+        # 否则写入到项目目录的 mineru/mineru.json
+        from mineru.utils.config_reader import _find_project_root, CONFIG_FILE_NAME
+        project_root = _find_project_root()
+        config_file = os.path.join(project_root, 'mineru', CONFIG_FILE_NAME)
+    
+    # 确保目录存在
+    os.makedirs(os.path.dirname(config_file), exist_ok=True)
 
     json_mods = {
         'models-dir': {

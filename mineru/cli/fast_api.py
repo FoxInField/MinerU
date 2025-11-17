@@ -250,7 +250,7 @@ async def parse_pdf(
 
 async def call_text_llm_api(
     text: str,
-    backend: str = "http-client",
+    backend: str = "transformers",
     vllm_server_url: Optional[str] = None,
     model_path: Optional[str] = None,
     prompt_template: Optional[str] = None,
@@ -322,7 +322,7 @@ async def call_text_llm_api(
 @app.post(path="/ai_process")
 async def ai_process(
     parse_result: str = Form(..., description="解析结果文本（可以是md_content或middle_json的字符串形式）"),
-    backend: str = Form("http-client", description="后端类型：http-client（需要外部服务器）、transformers（API内部）、vllm-engine（API内部）、vllm-async-engine（API内部）"),
+    backend: str = Form("transformers", description="后端类型：transformers（API内部，默认）、http-client（需要外部服务器）、vllm-engine（API内部）、vllm-async-engine（API内部）"),
     vllm_server_url: Optional[str] = Form(None, description="vllm服务器地址（仅http-client模式需要），如果为空则使用默认值"),
     model_path: Optional[str] = Form(None, description="模型路径（transformers/vllm-engine模式），如果为空则自动下载"),
     prompt_template: Optional[str] = Form(None, description="可选的提示词模板，支持多个占位符：{text}（会被parse_result替换）、{resume_text}、{json_template}等自定义占位符"),
@@ -407,7 +407,7 @@ async def parse_pdf_with_ai(
     start_page_id: int = Form(0),
     end_page_id: int = Form(99999),
     # AI处理相关参数
-    ai_backend: str = Form("http-client", description="AI处理后端类型：http-client（需要外部服务器）、transformers（API内部）、vllm-engine（API内部）、vllm-async-engine（API内部）"),
+    ai_backend: str = Form("transformers", description="AI处理后端类型：transformers（API内部，默认）、http-client（需要外部服务器）、vllm-engine（API内部）、vllm-async-engine（API内部）"),
     vllm_server_url: Optional[str] = Form(None, description="vllm服务器地址（仅http-client模式需要），如果为空则使用默认值"),
     model_path: Optional[str] = Form(None, description="模型路径（transformers/vllm-engine模式），如果为空则自动下载"),
     prompt_template: Optional[str] = Form(None, description="可选的提示词模板，支持多个占位符：{text}（会被解析结果替换）、{resume_text}、{json_template}等自定义占位符"),

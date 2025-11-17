@@ -37,8 +37,12 @@ RUN cd /app && \
     python3 -m pip install -e '.[core]' -i https://mirrors.aliyun.com/pypi/simple --break-system-packages && \
     python3 -m pip cache purge
 
-# Download models and update the configuration file
-RUN /bin/bash -c "mineru-models-download -s modelscope -m all"
+# 设置 ModelScope 缓存路径
+ENV MODELSCOPE_CACHE=/root/.cache/modelscope
+
+# Download models using BuildKit cache
+RUN --mount=type=cache,target=/root/.cache/modelscope \
+    /bin/bash -c "mineru-models-download -s modelscope -m all"
 
 # Set the entry point to activate the virtual environment and run the command line tool
 ENTRYPOINT ["/bin/bash", "-c", "export MINERU_MODEL_SOURCE=local && exec \"$@\"", "--"]

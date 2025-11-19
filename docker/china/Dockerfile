@@ -38,11 +38,11 @@ RUN cd /app && \
     python3 -m pip cache purge
 
 # 设置 ModelScope 缓存路径
-ENV MODELSCOPE_CACHE=/root/.cache/modelscope
+# ENV MODELSCOPE_CACHE=/root/.cache/modelscope
 
-# Download models using BuildKit cache
-RUN --mount=type=cache,target=/root/.cache/modelscope \
-    /bin/bash -c "mineru-models-download -s modelscope -m all"
+# # Download models using BuildKit cache mount (模型不会进入镜像，但会在构建间共享)
+# RUN --mount=type=cache,target=/root/.cache/modelscope \
+#     /bin/bash -c "mineru-models-download -s modelscope -m all"
 
 # Set the entry point to activate the virtual environment and run the command line tool
 ENTRYPOINT ["/bin/bash", "-c", "export MINERU_MODEL_SOURCE=local && exec \"$@\"", "--"]

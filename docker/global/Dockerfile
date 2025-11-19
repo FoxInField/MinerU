@@ -31,10 +31,12 @@ RUN cd /app && \
     python3 -m pip install -e '.[core]' --break-system-packages && \
     python3 -m pip cache purge
 
-ENV HF_HOME=/root/.cache/huggingface
-RUN --mount=type=cache,target=/root/.cache/huggingface \
-        /bin/bash -c "mineru-models-download -s huggingface -m all"
+# ENV HF_HOME=/root/.cache/huggingface
+# # Download models using BuildKit cache mount (模型不会进入镜像，但会在构建间共享)
+# RUN --mount=type=cache,target=/root/.cache/huggingface \
+#     /bin/bash -c "mineru-models-download -s huggingface -m all"
 
 
 # Set the entry point to activate the virtual environment and run the command line tool
-ENTRYPOINT ["/bin/bash", "-c", "export MINERU_MODEL_SOURCE=local && exec \"$@\"", "--"]
+# ENTRYPOINT ["/bin/bash", "-c", "export MINERU_MODEL_SOURCE=local && exec \"$@\"", "--"]
+ENTRYPOINT ["/bin/bash", "-c", "export LD_LIBRARY_PATH=/usr/local/cuda-12.8/targets/x86_64-linux/lib:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH && export MINERU_MODEL_SOURCE=local && exec \"$@\"", "--"]

@@ -97,6 +97,27 @@ def download_vlm_models():
     configure_model(download_finish_path, "vlm")
 
 
+def download_text_llm_models():
+    """下载 Text LLM 模型（从 mineru.json 的 ai-config 读取模型名称）"""
+    from mineru.utils.config_reader import get_ai_config
+    
+    # 读取 ai-config
+    ai_config = get_ai_config()
+    if not ai_config or 'model' not in ai_config:
+        logger.warning("No 'model' found in ai-config, skipping text_llm download")
+        return
+    
+    model_name = ai_config['model']
+    logger.info(f"Downloading text_llm model: {model_name}")
+    
+    # 下载模型
+    download_finish_path = auto_download_and_get_model_root_path(model_name, repo_mode='text_llm')
+    logger.info(f"Text LLM model downloaded successfully to: {download_finish_path}")
+    
+    # 配置到 mineru.json
+    configure_model(download_finish_path, "text_llm")
+
+
 @click.command()
 @click.option(
     '-s',
@@ -112,7 +133,7 @@ def download_vlm_models():
     '-m',
     '--model_type',
     'model_type',
-    type=click.Choice(['pipeline', 'vlm', 'all']),
+    type=click.Choice(['pipeline', 'vlm', 'text_llm', 'all']),
     help="""
         The type of the model to download.
         """,
@@ -121,7 +142,7 @@ def download_vlm_models():
 def download_models(model_source, model_type):
     """Download MinerU model files.
 
-    Supports downloading pipeline or VLM models from ModelScope or HuggingFace.
+    Supports downloading pipeline, VLM, or text_llm models from ModelScope or HuggingFace.
     """
     # 如果未显式指定则交互式输入下载来源
     if model_source is None:
@@ -138,7 +159,7 @@ def download_models(model_source, model_type):
     if model_type is None:
         model_type = click.prompt(
             "Please select the model type to download: ",
-            type=click.Choice(['pipeline', 'vlm', 'all']),
+            type=click.Choice(['pipeline', 'vlm', 'text_llm', 'all']),
             default='all'
         )
 
@@ -149,9 +170,12 @@ def download_models(model_source, model_type):
             download_pipeline_models()
         elif model_type == 'vlm':
             download_vlm_models()
+        elif model_type == 'text_llm':
+            download_text_llm_models()
         elif model_type == 'all':
             download_pipeline_models()
             download_vlm_models()
+            download_text_llm_models()
         else:
             click.echo(f"Unsupported model type: {model_type}", err=True)
             sys.exit(1)

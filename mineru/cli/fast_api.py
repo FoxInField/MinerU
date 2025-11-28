@@ -312,6 +312,77 @@ async def call_text_llm_api(
             quantization=quantization,
         )
         
+        # LLM 调用完成后，检查是否需要卸载模型（显存 < 6GB）
+        if backend != "http-client":  # http-client 模式不需要卸载
+            try:
+                import torch
+                import gc
+                from mineru.utils.config_reader import get_device
+                from mineru.utils.model_utils import (
+                    clean_memory,
+                    _move_model_to_cpu,
+                )
+                
+                device = get_device()
+                if device.startswith("cuda") and torch.cuda.is_available():
+                    device_str = str(device)
+                    device_idx = int(device_str.split(':')[1]) if ':' in device_str else 0
+                    total_vram = torch.cuda.get_device_properties(device_idx).total_memory / (1024 ** 3)
+                    
+                    if total_vram < 6.0:
+                        logger.info(
+                            f"Low VRAM detected ({total_vram:.2f}GB < 6GB). "
+                            f"Unloading text LLM model after generation to prevent OOM on next call..."
+                        )
+                        
+                        # 清理 text LLM 模型
+                        try:
+                            from mineru.backend.text_llm.text_llm_analyze import TextLLMSingleton
+                            
+                            text_llm_singleton = TextLLMSingleton()
+                            if hasattr(text_llm_singleton, '_models') and text_llm_singleton._models:
+                                model_count = len(text_llm_singleton._models)
+                                for key, model_info in list(text_llm_singleton._models.items()):
+                                    try:
+                                        # 卸载 transformers 模型
+                                        if model_info.get("model") is not None:
+                                            _move_model_to_cpu(model_info["model"])
+                                            del model_info["model"]
+                                        
+                                        # 卸载 tokenizer
+                                        if model_info.get("tokenizer") is not None:
+                                            del model_info["tokenizer"]
+                                        
+                                        # 卸载 vllm 引擎
+                                        if model_info.get("vllm_llm") is not None:
+                                            del model_info["vllm_llm"]
+                                        
+                                        if model_info.get("vllm_async_llm") is not None:
+                                            del model_info["vllm_async_llm"]
+                                    except Exception as e:
+                                        logger.debug(f"Error moving text LLM model {key} to CPU: {e}")
+                                
+                                text_llm_singleton._models.clear()
+                                logger.info(f"Cleared {model_count} text LLM models from TextLLMSingleton")
+                                
+                                # 强制垃圾回收
+                                for _ in range(3):
+                                    gc.collect()
+                                clean_memory(device)
+                                
+                                # 清理后检查显存
+                                allocated_after = torch.cuda.memory_allocated(device_idx) / (1024 ** 3)
+                                reserved_after = torch.cuda.memory_reserved(device_idx) / (1024 ** 3)
+                                logger.info(
+                                    f"After unloading text LLM: Allocated={allocated_after:.2f}GB, "
+                                    f"Reserved={reserved_after:.2f}GB"
+                                )
+                        except Exception as e:
+                            logger.debug(f"Failed to unload text LLM models: {e}")
+                        
+            except Exception as e:
+                logger.debug(f"Failed to check/unload models after LLM generation: {e}")
+        
         return result
                 
     except Exception as e:

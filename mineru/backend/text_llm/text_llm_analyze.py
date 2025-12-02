@@ -410,7 +410,8 @@ def build_prompt(
                 f"请通过kwargs参数提供，例如：build_prompt(..., {missing}='value')"
             )
     else:
-        prompt = f"你是一名资深HR，收到了以下简历：\n\n{text}\n\n请总结求职者的优势和不足，给出是否进入下一轮面试的建议。"
+        # 如果没有提供模板，直接使用text作为prompt
+        prompt = text
     
     # 输出构建好的提示词（用于调试）
     logger.info("=" * 80)

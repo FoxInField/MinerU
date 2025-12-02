@@ -25,6 +25,37 @@ from mineru.version import __version__
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# 全局缓存提示词
+_PARSE_TO_JSON_PROMPT = None
+
+def load_parse_to_json_prompt() -> str:
+    """
+    加载 parse_to_json 的提示词模板
+    从 MinerU/parse_to_json_prompt.txt 文件读取
+    """
+    global _PARSE_TO_JSON_PROMPT
+    
+    # 如果已缓存，直接返回
+    if _PARSE_TO_JSON_PROMPT is not None:
+        return _PARSE_TO_JSON_PROMPT
+    
+    # 获取提示词文件路径（MinerU项目根目录）
+    current_file = Path(__file__)  # fast_api.py
+    mineru_root = current_file.parent.parent.parent  # MinerU/
+    prompt_file = mineru_root / "parse_to_json_prompt.txt"
+    
+    try:
+        with open(prompt_file, 'r', encoding='utf-8') as f:
+            _PARSE_TO_JSON_PROMPT = f.read()
+        logger.info(f"成功加载提示词模板: {prompt_file}")
+        return _PARSE_TO_JSON_PROMPT
+    except FileNotFoundError:
+        logger.error(f"提示词文件不存在: {prompt_file}")
+        raise
+    except Exception as e:
+        logger.error(f"加载提示词文件失败: {e}")
+        raise
+
 
 def sanitize_filename(filename: str) -> str:
     """
@@ -653,6 +684,330 @@ async def parse_pdf_with_ai(
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to process file with AI: {str(e)}"}
+        )
+
+
+@app.post(path="/file_parse_to_json")
+async def parse_pdf_to_json(
+    files: List[UploadFile] = File(...),
+    output_dir: str = Form("./output"),
+    lang_list: List[str] = Form(["ch"]),
+    backend: str = Form("pipeline"),
+    parse_method: str = Form("auto"),
+    formula_enable: bool = Form(True),
+    table_enable: bool = Form(True),
+    server_url: Optional[str] = Form(None),
+    start_page_id: int = Form(0),
+    end_page_id: int = Form(99999),
+    # AI处理相关参数
+    ai_backend: str = Form("transformers", description="AI处理后端类型：transformers（API内部，默认）、http-client（需要外部服务器）、vllm-engine（API内部）、vllm-async-engine（API内部）"),
+    vllm_server_url: Optional[str] = Form(None, description="vllm服务器地址（仅http-client模式需要），如果为空则使用默认值"),
+    model_path: Optional[str] = Form(None, description="模型路径（transformers/vllm-engine模式），如果为空则自动下载"),
+    max_tokens: int = Form(2048, description="最大生成token数"),
+    temperature: float = Form(0.7, description="温度参数"),
+):
+    """
+    完整流程：PDF解析 + LLM自动结构化为JSON（无需提供模板）
+    
+    这个接口会先使用VLM模型解析PDF文件，然后使用文本LLM将解析结果
+    自动转换为结构化的JSON数据。LLM会自动识别文档内容并生成合适的JSON结构。
+    
+    特点：
+    - 不需要提供提示词模板（内嵌在代码中）
+    - LLM自动理解文档内容并生成JSON结构
+    
+    AI处理后端选项：
+    - http-client: 连接到外部文本LLM服务器（需要单独启动mineru-text-llm-server）
+    - transformers: 在API服务内部直接加载模型（无需单独服务器）
+    - vllm-engine: 在API服务内部使用vllm引擎（无需单独服务器）
+    - vllm-async-engine: 在API服务内部使用vllm异步引擎（无需单独服务器）
+    """
+    # 获取命令行配置参数
+    config = getattr(app.state, "config", {})
+
+    try:
+        # 创建唯一的输出目录
+        unique_dir = os.path.join(output_dir, str(uuid.uuid4()))
+        os.makedirs(unique_dir, exist_ok=True)
+
+        # 处理上传的PDF文件
+        pdf_file_names = []
+        pdf_bytes_list = []
+
+        for file in files:
+            content = await file.read()
+            file_path = Path(file.filename)
+
+            # 创建临时文件
+            temp_path = Path(unique_dir) / file_path.name
+            with open(temp_path, "wb") as f:
+                f.write(content)
+
+            # 如果是图像文件或PDF，使用read_fn处理
+            file_suffix = guess_suffix_by_path(temp_path)
+            if file_suffix in pdf_suffixes + image_suffixes:
+                try:
+                    pdf_bytes = read_fn(temp_path)
+                    pdf_bytes_list.append(pdf_bytes)
+                    pdf_file_names.append(file_path.stem)
+                    os.remove(temp_path)  # 删除临时文件
+                except Exception as e:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": f"Failed to load file: {str(e)}"}
+                    )
+            else:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Unsupported file type: {file_suffix}"}
+                )
+
+        # 设置语言列表，确保与文件数量一致
+        actual_lang_list = lang_list
+        if len(actual_lang_list) != len(pdf_file_names):
+            # 如果语言列表长度不匹配，使用第一个语言或默认"ch"
+            actual_lang_list = [actual_lang_list[0] if actual_lang_list else "ch"] * len(pdf_file_names)
+
+        # 调用异步处理函数进行PDF解析
+        await aio_do_parse(
+            output_dir=unique_dir,
+            pdf_file_names=pdf_file_names,
+            pdf_bytes_list=pdf_bytes_list,
+            p_lang_list=actual_lang_list,
+            backend=backend,
+            parse_method=parse_method,
+            formula_enable=formula_enable,
+            table_enable=table_enable,
+            server_url=server_url,
+            f_draw_layout_bbox=False,
+            f_draw_span_bbox=False,
+            f_dump_md=True,  # 需要生成md用于AI处理
+            f_dump_middle_json=False,
+            f_dump_model_output=False,
+            f_dump_orig_pdf=False,
+            f_dump_content_list=False,
+            start_page_id=start_page_id,
+            end_page_id=end_page_id,
+            **config
+        )
+
+        # 构建结果并调用AI处理
+        result_dict = {}
+        for pdf_name in pdf_file_names:
+            result_dict[pdf_name] = {}
+            data = result_dict[pdf_name]
+
+            if backend.startswith("pipeline"):
+                parse_dir = os.path.join(unique_dir, pdf_name, parse_method)
+            else:
+                parse_dir = os.path.join(unique_dir, pdf_name, "vlm")
+
+            if not os.path.exists(parse_dir):
+                continue
+
+            # 读取解析结果
+            parse_text = get_infer_result(".md", pdf_name, parse_dir)
+            
+            # 如果找到了解析结果，调用AI处理
+            if parse_text:
+                try:
+                    # 构建完整的提示词（使用{text}占位符）
+                    # call_text_llm_api会使用build_prompt处理，所以我们传入模板
+                    # 从外部文件加载提示词模板
+                    simple_template = load_parse_to_json_prompt()
+                    
+                    # 调用LLM进行JSON结构化
+                    ai_result = await call_text_llm_api(
+                        text=parse_text,  # 原始文本
+                        backend=ai_backend,
+                        vllm_server_url=vllm_server_url,
+                        model_path=model_path,
+                        prompt_template=simple_template,  # 传入模板
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                    
+                    # 尝试解析JSON以验证格式
+                    try:
+                        import json
+                        import re
+                        
+                        # 使用括号匹配提取JSON（更准确）
+                        def extract_json_by_brace_matching(text):
+                            """使用括号匹配提取第一个完整的JSON对象"""
+                            first_brace = text.find('{')
+                            if first_brace == -1:
+                                return None
+                            
+                            brace_count = 0
+                            in_string = False
+                            escape_next = False
+                            
+                            for i in range(first_brace, len(text)):
+                                char = text[i]
+                                
+                                # 处理字符串中的转义
+                                if escape_next:
+                                    escape_next = False
+                                    continue
+                                
+                                if char == '\\':
+                                    escape_next = True
+                                    continue
+                                
+                                # 处理字符串边界
+                                if char == '"' and not in_string:
+                                    in_string = True
+                                elif char == '"' and in_string:
+                                    in_string = False
+                                
+                                # 只在字符串外计数括号
+                                if not in_string:
+                                    if char == '{':
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                        
+                                        if brace_count == 0:
+                                            # 找到匹配的结束括号
+                                            return text[first_brace:i + 1]
+                            
+                            return None
+                        
+                        # 预处理：移除markdown代码块标记
+                        cleaned_result = ai_result
+                        logger.info(f"原始LLM输出长度: {len(ai_result)} 字符")
+                        logger.debug(f"原始LLM输出前200字符: {ai_result[:200]}")
+                        
+                        # 移除 ```json 和 ``` 标记
+                        cleaned_result = re.sub(r'```json\s*', '', cleaned_result)
+                        cleaned_result = re.sub(r'```\s*', '', cleaned_result)
+                        logger.info(f"清理后输出长度: {len(cleaned_result)} 字符")
+                        
+                        json_str = extract_json_by_brace_matching(cleaned_result)
+                        
+                        if json_str:
+                            logger.info(f"提取的JSON长度: {len(json_str)} 字符")
+                            logger.debug(f"提取的JSON前200字符: {json_str[:200]}")
+                        else:
+                            logger.warning("未能提取到JSON字符串")
+                        
+                        if json_str:
+                            # 清理可能导致解析错误的问题
+                            # 1. 移除JSON中的注释（有些LLM会添加）
+                            json_str = re.sub(r'//.*?\n', '\n', json_str)
+                            json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+                            
+                            # 2. 修复常见的转义问题
+                            # 将单反斜杠替换为双反斜杠（但保留已经正确转义的）
+                            # 这个比较复杂，暂时跳过，让JSON解析器处理
+                            
+                            try:
+                                parsed_json = json.loads(json_str)
+                                data["structured_data"] = parsed_json
+                                data["raw_llm_output"] = ai_result
+                                logger.info(f"成功解析JSON，包含 {len(parsed_json)} 个顶级字段")
+                            except json.JSONDecodeError as je:
+                                # 如果还是失败，尝试修复常见问题后再解析
+                                logger.warning(f"首次JSON解析失败: {je}, 尝试修复...")
+                                
+                                # 尝试多种修复策略
+                                fixed = False
+                                
+                                # 策略1: 移除无效的转义序列（如 \mu, \mathrm 等LaTeX命令）
+                                try:
+                                    # 匹配字符串值内的无效转义（不在标准转义字符列表中的）
+                                    # 标准转义: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
+                                    import re
+                                    
+                                    def fix_escapes_in_string(match):
+                                        """修复字符串内的非法转义"""
+                                        string_content = match.group(0)
+                                        # 将不合法的反斜杠替换为空或者转义
+                                        # 保留合法的转义序列
+                                        fixed_content = re.sub(
+                                            r'\\(?!["\\/bfnrtu])',  # 反斜杠后不是合法转义字符
+                                            '',  # 移除反斜杠
+                                            string_content
+                                        )
+                                        return fixed_content
+                                    
+                                    # 匹配JSON字符串（在双引号内的内容）
+                                    fixed_str = re.sub(
+                                        r'"[^"\\]*(?:\\.[^"\\]*)*"',  # JSON字符串的正则
+                                        fix_escapes_in_string,
+                                        json_str
+                                    )
+                                    
+                                    logger.debug(f"策略1修复后的JSON前200字符: {fixed_str[:200]}")
+                                    parsed_json = json.loads(fixed_str)
+                                    data["structured_data"] = parsed_json
+                                    data["raw_llm_output"] = ai_result
+                                    data["parse_warning"] = "JSON需要修复才能解析（移除了无效转义字符）"
+                                    logger.info(f"通过移除无效转义字符成功解析JSON，包含 {len(parsed_json)} 个顶级字段")
+                                    fixed = True
+                                except Exception as e1:
+                                    logger.warning(f"策略1失败: {e1}")
+                                
+                                # 策略2: 简单替换（如果策略1失败）
+                                if not fixed:
+                                    try:
+                                        fixed_str = json_str.replace('\\\\', '\\')
+                                        parsed_json = json.loads(fixed_str)
+                                        data["structured_data"] = parsed_json
+                                        data["raw_llm_output"] = ai_result
+                                        data["parse_warning"] = "JSON需要修复才能解析（简化转义）"
+                                        logger.info("通过简化转义成功解析JSON")
+                                        fixed = True
+                                    except Exception as e2:
+                                        logger.warning(f"策略2失败: {e2}")
+                                
+                                # 如果所有策略都失败
+                                if not fixed:
+                                    data["structured_data"] = None
+                                    data["raw_llm_output"] = ai_result
+                                    data["parse_error"] = f"JSON解析失败: {str(je)}"
+                                    logger.error(f"JSON解析完全失败: {je}")
+                        else:
+                            # 如果找不到JSON，返回原始输出
+                            data["structured_data"] = None
+                            data["raw_llm_output"] = ai_result
+                            data["parse_warning"] = "LLM输出中未找到有效的JSON格式"
+                    except Exception as parse_error:
+                        # 整个解析过程出错
+                        data["structured_data"] = None
+                        data["raw_llm_output"] = ai_result
+                        data["parse_error"] = f"解析过程出错: {str(parse_error)}"
+                        logger.exception(f"JSON提取过程异常: {parse_error}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process {pdf_name} with AI: {e}")
+                    data["ai_error"] = str(e)
+            else:
+                data["ai_error"] = "No parse result found for AI processing"
+
+        # 从配置文件读取模型名称用于返回
+        from mineru.utils.config_reader import get_ai_config
+        ai_config = get_ai_config()
+        model = 'Qwen/Qwen2.5-1.5B-Instruct'  # 默认值
+        if ai_config:
+            model = ai_config.get('model', model)
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "backend": backend,
+                "version": __version__,
+                "model": model,
+                "ai_backend": ai_backend,
+                "results": result_dict
+            }
+        )
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to process file to JSON: {str(e)}"}
         )
 
 

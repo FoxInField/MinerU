@@ -23,6 +23,7 @@ WORKDIR /app
 # Copy project root files first
 COPY pyproject.toml /app/
 COPY README.md /app/
+COPY parse_to_json_prompt.txt /app/parse_to_json_prompt.txt
 # Copy mineru package directory
 COPY mineru/ /app/mineru/
 
